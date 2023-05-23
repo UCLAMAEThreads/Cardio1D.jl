@@ -1,3 +1,25 @@
+function build_lower_network_impedances(id::Int,freq::AbstractVector,cv::CVTree)
+  omega = 2π*freq
+  nfreq = length(freq)
+
+  Z0data = zeros(ComplexF64,cv.n,nfreq)
+  Ztdata = zeros(ComplexF64,cv.n,nfreq)
+  ptransdata = zeros(ComplexF64,cv.n,nfreq)
+
+  for (j,wj) in enumerate(omega)
+    Z0, Zt, p_trans, check_sum = calculate_impedances_of_segment(wj,id,cv)
+    Z0data[:,j] = Z0
+    Ztdata[:,j] = Zt
+    ptransdata[:,j] = p_trans
+  end
+
+  return Z0data, Ztdata, ptransdata
+
+end
+
+build_network_impedances(freq::AbstractVector,cv::CVTree) = build_lower_network_impedances(1,freq,cv)
+
+
 function calculate_impedances_of_segment(omega::Float64,id::Int,cv::CVTree)
   @unpack n, lengths, radii, Rp, blood_density, blood_viscosity = cv
 
@@ -18,7 +40,7 @@ function calculate_impedances_of_segment(omega::Float64,id::Int,cv::CVTree)
     Zt_k = Rp[id]
   else
     Ztinv = complex(0.0)
-    for daught_id in daughters(id,cv)
+    for daught_id in daughter_ids(id,cv)
       Z0_d, Zt_d, p_trans_d, check_sum_d = calculate_impedances_of_segment(omega,daught_id,cv)
 
       Z0 .+= Z0_d
@@ -49,31 +71,42 @@ function calculate_impedances_of_segment(omega::Float64,id::Int,cv::CVTree)
 end
 
 
-function get_pressure_sig(id::Int,freqbpm,P0_mmHg,Z0data,ptransdata,cv::CVTree)
+function get_signals_in_segment(id::Int,Q0_mlpersec,Z0data,ptransdata,cv::CVTree)
     @unpack parents = cv
 
     mmHg_to_Pa = 133.3224
     m3sec_to_mlsec = 100^3
 
-    P0_Pa = mmHg_to_Pa*P0_mmHg
-    p0hat = fft(P0_Pa)
 
-    Z0_k = Z0data[id,:]
-    Ptrans_k = ones(ComplexF64,size(Z0_k))
+    Ptrans_k = ones(ComplexF64,size(Z0data,2))
     parent_id = parents[id]
     while (parent_id > 0)
       Ptrans_k = Ptrans_k.*ptransdata[parent_id,:]
       parent_id = parents[parent_id]
     end
+
+    Z0_0 = Z0data[1,:]
+    Z0_k = Z0data[id,:]
+
+    #=
+    # Using pressure input
+    p0_Pa = mmHg_to_Pa*p0_mmHg
+    p0hat = fft(p0_Pa)
+    pkhat = apply_transfer_function(p0hat,Ptrans_k)
+    Qkhat = apply_transfer_function(pkhat,1.0./Z0_k)
+    =#
+    
+    # Using flow rate input
+    Q0_m3sec = Q0_mlpersec/m3sec_to_mlsec
+    Q0hat = fft(Q0_m3sec)
+    p0hat = apply_transfer_function(Q0hat,Z0_0)
     pkhat = apply_transfer_function(p0hat,Ptrans_k)
     Qkhat = apply_transfer_function(pkhat,1.0./Z0_k)
 
     pk_mmHg = real(ifft(pkhat))/mmHg_to_Pa
     Qk_mlpersec = m3sec_to_mlsec*real(ifft(Qkhat))
 
-    t = collect(range(0.0,60.0/freqbpm,length(pk_mmHg)))
-
-    return t, pk_mmHg, Qk_mlpersec
+    return pk_mmHg, Qk_mlpersec
 
 end
 

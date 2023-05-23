@@ -10,8 +10,10 @@ module Cardio1D
   const DEFAULT_VE_PARAMETER = 15π/180
   const DEFAULT_TERMINAL_RESISTANCE = 6.0e9
 
-  export CVTree
+  export CVTree, name, daughter_ids, parent_id, daughter_names, parent_name,
+          get_frequencies, build_network_impedances, get_signals_in_segment
 
+  include("utilities.jl")
   include("physical_equations.jl")
   include("cvtree.jl")
   include("network.jl")
